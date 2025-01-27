@@ -1,0 +1,52 @@
+// Estrutura inicial de uma pool de mineração com suporte a AsicBoost
+// Baseado no NOMP
+
+const fs = require('fs');
+const path = require('path');
+const cluster = require('cluster');
+const config = require('./config.json');
+const stratum = require('node-stratum-pool');
+
+if (cluster.isMaster) {
+    console.log(`Iniciando pool de mineração com suporte a AsicBoost...`);
+
+    // Configurar workers para cada instância do stratum pool
+    for (let i = 0; i < config.instances; i++) {
+        cluster.fork();
+    }
+
+    cluster.on('exit', (worker, code, signal) => {
+        console.error(`Worker ${worker.process.pid} morreu. Reiniciando...`);
+        cluster.fork();
+    });
+} else {
+    const poolConfig = {
+        coin: config.coin,
+        address: config.poolAddress,
+        ports: config.ports,
+        redis: config.redis,
+        asicboost: true
+    };
+
+    console.log(`Worker ${process.pid} inicializado para a moeda ${config.coin}...`);
+
+    const pool = new stratum.Pool(poolConfig, (workerId, workerName, workerPass) => {
+        console.log(`Worker conectado: ${workerName}`);
+    });
+
+    pool.on('share', (isValid, isValidBlock, workerName, shareDiff) => {
+        if (isValid) {
+            console.log(`Share válido recebido de ${workerName}. Dificuldade: ${shareDiff}`);
+        } else {
+            console.log(`Share inválido de ${workerName}`);
+        }
+    });
+
+    pool.on('block', (blockData) => {
+        console.log(`Novo bloco detectado! Altura: ${blockData.height}`);
+    });
+
+    pool.start();
+}
+
+module.exports = cluster;
